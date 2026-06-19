@@ -38,39 +38,79 @@ def generate_launch_description():
         except Exception as e:
             print(f'[a733_csi_cam_ros2] Error loading params.yaml: {e}', file=sys.stderr)
 
+    source_type = LaunchConfiguration('source_type')
+    sensor = LaunchConfiguration('sensor')
+    width = LaunchConfiguration('width')
+    height = LaunchConfiguration('height')
+    fps = LaunchConfiguration('fps')
     camera_id = LaunchConfiguration('camera_id')
+    resize_w = LaunchConfiguration('resize_w')
+    resize_h = LaunchConfiguration('resize_h')
+    video_device = LaunchConfiguration('device')
+    pixel_format = LaunchConfiguration('format')
+    io_mode = LaunchConfiguration('io_mode')
+    qos_reliable = LaunchConfiguration('qos_reliable')
+
+    topic = PythonExpression(["'/camera_' + str('", camera_id, "') + '/image_raw'"])
+    frame_id = PythonExpression(["'camera_optical_' + str('", camera_id, "')"])
+    in_size = PythonExpression(["str('", width, "') + 'x' + str('", height, "')"])
+    calibration_file = PythonExpression([
+        "'", config_dir, "/' + str('", sensor,
+        "') + '_' + str('", width,
+        "') + 'x' + str('", height, "') + '.yaml'",
+    ])
 
     ld_items = [
-        DeclareLaunchArgument('device',           default_value='/dev/video8'),
-        DeclareLaunchArgument('topic',            default_value='/camera/image_raw'),
+        DeclareLaunchArgument('source_type',      default_value='v4l2',
+                              description='Capture backend. A733 supports v4l2.'),
+        DeclareLaunchArgument('sensor',           default_value='imx219',
+                              description='Sensor name, used for calibration file naming.'),
+        DeclareLaunchArgument('width',            default_value='1280'),
+        DeclareLaunchArgument('height',           default_value='960'),
         DeclareLaunchArgument('fps',              default_value='30'),
-        DeclareLaunchArgument('in_size',          default_value='1280x960'),
-        DeclareLaunchArgument('resize_w',         default_value='320'),
-        DeclareLaunchArgument('resize_h',         default_value='240'),
-        DeclareLaunchArgument('qos_reliable',     default_value='true'),
-        DeclareLaunchArgument('enable_isp',       default_value='true'),
         DeclareLaunchArgument('camera',           default_value='1',
                               description='Alias for camera_id'),
         DeclareLaunchArgument('camera_id',        default_value=LaunchConfiguration('camera')),
-        DeclareLaunchArgument(
-            'frame_id',
-            default_value=PythonExpression(["'camera_optical_' + str('", camera_id, "')"]),
-        ),
-        DeclareLaunchArgument('calibration_file', default_value=''),
+        DeclareLaunchArgument('resize_w',         default_value='0',
+                              description='Output width (0 = same as capture)'),
+        DeclareLaunchArgument('resize_h',         default_value='0',
+                              description='Output height (0 = same as capture)'),
+        DeclareLaunchArgument('video_device',     default_value='/dev/video8',
+                              description='V4L2 capture device'),
+        DeclareLaunchArgument('device',           default_value=LaunchConfiguration('video_device'),
+                              description='Legacy alias for video_device'),
+        DeclareLaunchArgument('format',           default_value='BGR24',
+                              description='V4L2 pixel format. A733 node currently captures BGR24.'),
+        DeclareLaunchArgument('io_mode',          default_value='mmap',
+                              description='V4L2 io-mode. A733 node currently uses mmap buffers.'),
+        DeclareLaunchArgument('qos_reliable',     default_value='true'),
+        DeclareLaunchArgument('enable_isp',       default_value='true'),
+        DeclareLaunchArgument('topic',            default_value=topic),
+        DeclareLaunchArgument('frame_id',         default_value=frame_id),
+        DeclareLaunchArgument('in_size',          default_value=in_size,
+                              description='Legacy WIDTHxHEIGHT alias for width/height'),
+        DeclareLaunchArgument('calibration_file', default_value=calibration_file),
 
         Node(
             package='a733_csi_cam_ros2',
             executable='imx219_camera_node',
-            name='imx219_camera_node',
+            name=PythonExpression(["'camera_' + str('", camera_id, "')"]),
             output='screen',
             parameters=[{
-                'device':           LaunchConfiguration('device'),
+                'source_type':      source_type,
+                'sensor':           sensor,
                 'topic':            LaunchConfiguration('topic'),
-                'fps':              LaunchConfiguration('fps'),
+                'fps':              fps,
+                'width':            width,
+                'height':           height,
                 'in_size':          LaunchConfiguration('in_size'),
-                'resize_w':         LaunchConfiguration('resize_w'),
-                'resize_h':         LaunchConfiguration('resize_h'),
-                'qos_reliable':     LaunchConfiguration('qos_reliable'),
+                'video_device':     video_device,
+                'device':           video_device,
+                'format':           pixel_format,
+                'io_mode':          io_mode,
+                'resize_w':         resize_w,
+                'resize_h':         resize_h,
+                'qos_reliable':     qos_reliable,
                 'enable_isp':       LaunchConfiguration('enable_isp'),
                 'frame_id':         LaunchConfiguration('frame_id'),
                 'calibration_file': LaunchConfiguration('calibration_file'),

@@ -10,16 +10,25 @@
  *   <topic>_info  sensor_msgs/CameraInfo
  *
  * Parameters:
- *   device           string   /dev/video8
- *   topic            string   /camera/image_raw
+ *   topic            string   /camera_1/image_raw
+ *   source_type      string   v4l2          (A733 supports v4l2)
+ *   sensor           string   imx219
  *   fps              int      30
- *   in_size          string   1280x960
+ *   width            int      1280
+ *   height           int      960
  *   resize_w         int      0             (0 = native)
  *   resize_h         int      0             (0 = native)
+ *   video_device     string   /dev/video8
+ *   format           string   BGR24
+ *   io_mode          string   mmap
  *   qos_reliable     bool     true
  *   calibration_file string   ""
  *   enable_isp       bool     true
- *   frame_id         string   camera_optical
+ *   frame_id         string   camera_optical_1
+ *
+ * Legacy aliases:
+ *   device           string   alias for video_device
+ *   in_size          string   WIDTHxHEIGHT alias for width/height
  */
 
 #include <linux/videodev2.h>
@@ -302,30 +311,83 @@ private:
 class Imx219CameraNode : public rclcpp::Node {
 public:
     Imx219CameraNode() : Node("imx219_camera_node") {
-        declare_parameter("device",           "/dev/video8");
-        declare_parameter("topic",            "/camera/image_raw");
+        declare_parameter("topic",            "/camera_1/image_raw");
+        declare_parameter("source_type",      "v4l2");
+        declare_parameter("sensor",           "imx219");
         declare_parameter("fps",              30);
-        declare_parameter("in_size",          "1280x960");
+        declare_parameter("width",            1280);
+        declare_parameter("height",           960);
         declare_parameter("resize_w",         0);
         declare_parameter("resize_h",         0);
+        declare_parameter("video_device",     "/dev/video8");
+        declare_parameter("format",           "BGR24");
+        declare_parameter("io_mode",          "mmap");
         declare_parameter("qos_reliable",     true);
         declare_parameter("calibration_file", "");
         declare_parameter("enable_isp",       true);
-        declare_parameter("frame_id",         "camera_optical");
+        declare_parameter("frame_id",         "camera_optical_1");
+        declare_parameter("device",           "");
+        declare_parameter("in_size",          "");
 
-        device_     = get_parameter("device").as_string();
-        topic_      = get_parameter("topic").as_string();
-        fps_        = get_parameter("fps").as_int();
-        enable_isp_ = get_parameter("enable_isp").as_bool();
-        frame_id_   = get_parameter("frame_id").as_string();
-        resize_w_   = get_parameter("resize_w").as_int();
-        resize_h_   = get_parameter("resize_h").as_int();
+        topic_        = get_parameter("topic").as_string();
+        source_type_  = get_parameter("source_type").as_string();
+        sensor_       = get_parameter("sensor").as_string();
+        fps_          = get_parameter("fps").as_int();
+        cap_w_        = get_parameter("width").as_int();
+        cap_h_        = get_parameter("height").as_int();
+        resize_w_     = get_parameter("resize_w").as_int();
+        resize_h_     = get_parameter("resize_h").as_int();
+        video_device_ = get_parameter("video_device").as_string();
+        format_       = get_parameter("format").as_string();
+        io_mode_      = get_parameter("io_mode").as_string();
+        enable_isp_   = get_parameter("enable_isp").as_bool();
+        frame_id_     = get_parameter("frame_id").as_string();
 
-        std::string in_size = get_parameter("in_size").as_string();
-        if (!parse_size(in_size, cap_w_, cap_h_)) {
-            RCLCPP_WARN(get_logger(), "Invalid in_size '%s', using 1280x960", in_size.c_str());
+        if (source_type_ != "v4l2") {
+            RCLCPP_WARN(get_logger(),
+                "A733 backend supports only source_type='v4l2'; requested '%s', using v4l2",
+                source_type_.c_str());
+            source_type_ = "v4l2";
+        }
+
+        if (format_ == "bgr24") {
+            format_ = "BGR24";
+        } else if (format_ != "BGR24") {
+            RCLCPP_WARN(get_logger(),
+                "A733 backend currently captures BGR24; requested format '%s' will be ignored",
+                format_.c_str());
+            format_ = "BGR24";
+        }
+
+        if (io_mode_ != "mmap" && io_mode_ != "auto" && !io_mode_.empty()) {
+            RCLCPP_WARN(get_logger(),
+                "A733 backend currently uses mmap buffers; requested io_mode '%s' will be ignored",
+                io_mode_.c_str());
+            io_mode_ = "mmap";
+        }
+        if (io_mode_.empty() || io_mode_ == "auto")
+            io_mode_ = "mmap";
+
+        std::string legacy_device = get_parameter("device").as_string();
+        if (!legacy_device.empty() && video_device_ == "/dev/video8")
+            video_device_ = legacy_device;
+
+        std::string legacy_in_size = get_parameter("in_size").as_string();
+        if (!legacy_in_size.empty() && cap_w_ == 1280 && cap_h_ == 960) {
+            if (!parse_size(legacy_in_size, cap_w_, cap_h_)) {
+                RCLCPP_WARN(get_logger(),
+                    "Invalid in_size '%s', using width/height defaults 1280x960",
+                    legacy_in_size.c_str());
+                cap_w_ = 1280; cap_h_ = 960;
+            }
+        }
+
+        if (cap_w_ <= 0 || cap_h_ <= 0) {
+            RCLCPP_WARN(get_logger(), "Invalid width/height %dx%d, using 1280x960",
+                cap_w_, cap_h_);
             cap_w_ = 1280; cap_h_ = 960;
         }
+
         out_w_ = (resize_w_ > 0) ? resize_w_ : cap_w_;
         out_h_ = (resize_h_ > 0) ? resize_h_ : cap_h_;
 
@@ -348,24 +410,33 @@ public:
 
         std::string cal_file = get_parameter("calibration_file").as_string();
         cinfo_mgr_ = std::make_shared<camera_info_manager::CameraInfoManager>(
-            this, "imx219",
+            this, sensor_,
             cal_file.empty() ? "" : "file://" + cal_file);
 
         RCLCPP_INFO(get_logger(),
             "\n=================================================="
             "\n  imx219_camera_node"
             "\n=================================================="
-            "\n  device:      %s"
+            "\n  source_type: %s"
+            "\n  sensor:      %s"
+            "\n  video_device:%s"
             "\n  capture:     %dx%d @ %d fps"
             "\n  output:      %dx%d"
+            "\n  format:      %s"
+            "\n  io_mode:     %s"
             "\n  topic:       %s"
-            "\n  topic_info:  %s_info"
+            "\n  topic_info:  %s"
             "\n  QoS:         %s"
             "\n  ISP 3A:      %s"
             "\n  calibration: %s"
             "\n==================================================",
-            device_.c_str(), cap_w_, cap_h_, fps_,
+            source_type_.c_str(),
+            sensor_.c_str(),
+            video_device_.c_str(),
+            cap_w_, cap_h_, fps_,
             out_w_, out_h_,
+            format_.c_str(),
+            io_mode_.c_str(),
             topic_.c_str(), info_topic.c_str(),
             reliable ? "RELIABLE" : "BEST_EFFORT",
             enable_isp_ ? "enabled (AWIspApi)" : "disabled",
@@ -404,7 +475,7 @@ private:
 
         while (running_) {
             // ── Init camera (exactly as in camera_shm_host) ──────────────────
-            V4L2Camera cam(device_, cap_w_, cap_h_, fps_);
+            V4L2Camera cam(video_device_, cap_w_, cap_h_, fps_);
             if (!cam.init()) {
                 RCLCPP_ERROR(get_logger(), "Camera init failed, retrying in 2s...");
                 std::this_thread::sleep_for(std::chrono::seconds(2));
@@ -529,7 +600,7 @@ private:
     }
 
     // Parameters
-    std::string device_, topic_, frame_id_;
+    std::string topic_, source_type_, sensor_, video_device_, format_, io_mode_, frame_id_;
     int fps_, cap_w_, cap_h_, out_w_, out_h_, resize_w_, resize_h_;
     bool enable_isp_;
 
