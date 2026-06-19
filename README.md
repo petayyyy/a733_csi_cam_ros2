@@ -402,24 +402,6 @@ lsmod | grep vin_v4l2
 - `CONTRIBUTING.md` - короткие правила разработки и проверки;
 - `.github/workflows/ci.yml` - базовая CI-сборка ROS 2 Humble на Ubuntu 22.04.
 
-## Публикация
-
-Если эта директория пока лежит внутри монорепозитория, перенеси ее содержимое в корень нового репозитория:
-
-```bash
-mkdir -p /tmp/a733_csi_cam_ros2
-cp -a sverk_ws/src/sverk_drone/peripheral/a733_csi_cam_ros2/. /tmp/a733_csi_cam_ros2/
-cd /tmp/a733_csi_cam_ros2
-
-git init -b main
-git remote add origin git@github.com:petayyyy/a733_csi_cam_ros2.git
-git add .
-git commit -m "Initial standalone ROS 2 A733 CSI camera package"
-git push -u origin main
-```
-
-Текст для GitHub About лежит в `ABOUT.md`. Его можно просто скопировать в поле Description и список Topics в настройках репозитория.
-
 ## Лицензия
 
 MIT. См. `LICENSE`.
