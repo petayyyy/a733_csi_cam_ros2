@@ -8,12 +8,6 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
-    add_compile_options($<$<CONFIG:Release>:-O2 -pipe -march=armv8-a -mtune=cortex-a53>)
-else()
-    add_compile_options($<$<CONFIG:Release>:-O2 -pipe>)
-endif()
-
 # ── ROS 2 dependencies ────────────────────────────────────────────────────────
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
@@ -40,6 +34,18 @@ endif()
 
 # ── Node executable ───────────────────────────────────────────────────────────
 add_executable(imx219_camera_node src/imx219_camera_node.cpp)
+
+target_compile_options(imx219_camera_node PRIVATE
+    $<$<CONFIG:Release>:-O2>
+    $<$<CONFIG:Release>:-pipe>
+)
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
+    target_compile_options(imx219_camera_node PRIVATE
+        $<$<CONFIG:Release>:-march=armv8-a>
+        $<$<CONFIG:Release>:-mtune=cortex-a53>
+    )
+endif()
 
 target_include_directories(imx219_camera_node PRIVATE
     ${OpenCV_INCLUDE_DIRS}
