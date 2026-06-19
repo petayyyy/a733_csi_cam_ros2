@@ -32,6 +32,7 @@ ROS 2 Humble драйвер для CSI-камеры IMX219 на Orange Pi Zero 3
 - опциональный resize на выходе, например захват `1280x960`, публикация `320x240`;
 - QoS `RELIABLE` или `BEST_EFFORT`;
 - загрузка YAML-калибровки через `camera_info_manager`;
+- статический TF камеры через `tf2_ros/static_transform_publisher`;
 - автоматический retry, если камера временно недоступна;
 - попытка включить realtime-приоритет для capture-потока;
 - опциональный Allwinner ISP 3A через `AWIspApi`.
@@ -52,6 +53,7 @@ a733_csi_cam_ros2/
 ├── package.xml
 ├── README.md
 ├── config/
+│   ├── params.yaml
 │   └── imx219_1280x960.yaml
 ├── launch/
 │   └── camera.launch.py
@@ -83,6 +85,9 @@ topic:=/camera_1/image_raw
 frame_id:=camera_optical_1
 ```
 
+Launch-файл также принимает `camera_id:=N` и по умолчанию задает `frame_id` как
+`camera_optical_N`.
+
 ## Параметры ноды
 
 | Параметр | Тип | По умолчанию | Описание |
@@ -96,9 +101,27 @@ frame_id:=camera_optical_1
 | `qos_reliable` | bool | `true` | `true` = RELIABLE, `false` = BEST_EFFORT |
 | `calibration_file` | string | `""` | Путь к YAML-файлу калибровки без префикса `file://` |
 | `enable_isp` | bool | `true` | Включать Allwinner ISP 3A, если пакет собран с `AWIspApi` |
-| `frame_id` | string | `camera_optical` | `frame_id` в заголовках `Image` и `CameraInfo` |
+| `camera` | string | `1` | Алиас для `camera_id` в launch-файле |
+| `camera_id` | string | `1` | Выбирает запись `camera_tf_<camera_id>` из `config/params.yaml` |
+| `frame_id` | string | `camera_optical_<camera_id>` в launch-файле, `camera_optical` в ноде | `frame_id` в заголовках `Image` и `CameraInfo`, а также child frame для static TF |
 
 Важно: launch-файл по умолчанию захватывает `1280x960`, но публикует `320x240`, потому что `resize_w:=320` и `resize_h:=240`. Для публикации полного разрешения передай `resize_w:=0 resize_h:=0`.
+
+## Static TF
+
+Статические трансформации камер задаются в `config/params.yaml`:
+
+```yaml
+camera_tf_1:
+  ros__parameters:
+    parent_frame: "base_link"
+    xyz: [0.065, 0.0, -0.03]
+    rpy: [-1.5707963, 0.0, 3.1415926]
+```
+
+При запуске `camera_id:=1` launch-файл поднимает `tf2_ros/static_transform_publisher`
+для выбранной записи и публикует transform из `parent_frame` в текущий `frame_id`.
+Если `frame_id` не задан явно, используется `camera_optical_1`.
 
 ## Подготовка хоста
 
@@ -153,7 +176,9 @@ sudo apt install -y \
   ros-humble-camera-info-manager \
   ros-humble-image-transport \
   ros-humble-cv-bridge \
-  ros-humble-ament-cmake
+  ros-humble-ament-cmake \
+  ros-humble-tf2-ros \
+  python3-yaml
 ```
 
 Опционально для просмотра изображения:

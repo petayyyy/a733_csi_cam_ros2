@@ -1,0 +1,23 @@
+# Static TF for each camera.
+#
+# Launch selects camera_tf_<camera_id> and publishes:
+#   parent_frame -> frame_id
+#
+# By default camera_id:=1 and frame_id:=camera_optical_1.
+camera_tf_0:
+  ros__parameters:
+    parent_frame: "base_link"
+    xyz: [0.065, 0.0, -0.03]
+    rpy: [-1.5707963, 0.0, 3.1415926]
+
+camera_tf_1:
+  ros__parameters:
+    parent_frame: "base_link"
+    xyz: [0.065, 0.0, -0.03]
+    rpy: [-1.5707963, 0.0, 3.1415926]
+
+camera_tf_2:
+  ros__parameters:
+    parent_frame: "base_link"
+    xyz: [0.065, 0.0, -0.03]
+    rpy: [-1.5707963, 0.0, 3.1415926]
