@@ -85,7 +85,7 @@ def generate_launch_description():
                               description='V4L2 io-mode. A733 node currently uses mmap buffers.'),
         DeclareLaunchArgument('qos_reliable',     default_value='true'),
         DeclareLaunchArgument('enable_isp',       default_value='true'),
-        DeclareLaunchArgument('flip_180',         default_value='false',
+        DeclareLaunchArgument('flip_180',         default_value='true',
                               description='Rotate image 180 deg (camera mounted upside-down)'),
         DeclareLaunchArgument('topic',            default_value=topic),
         DeclareLaunchArgument('frame_id',         default_value=frame_id),
