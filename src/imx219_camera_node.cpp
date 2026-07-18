@@ -25,6 +25,7 @@
  *   calibration_file string   ""
  *   enable_isp       bool     true
  *   frame_id         string   camera_optical_1
+ *   flip_180         bool     false         (rotate image 180 deg, for upside-down mounting)
  *
  * Legacy aliases:
  *   device           string   alias for video_device
@@ -326,6 +327,7 @@ public:
         declare_parameter("calibration_file", "");
         declare_parameter("enable_isp",       true);
         declare_parameter("frame_id",         "camera_optical_1");
+        declare_parameter("flip_180",         false);
         declare_parameter("device",           "");
         declare_parameter("in_size",          "");
 
@@ -342,6 +344,7 @@ public:
         io_mode_      = get_parameter("io_mode").as_string();
         enable_isp_   = get_parameter("enable_isp").as_bool();
         frame_id_     = get_parameter("frame_id").as_string();
+        flip_180_     = get_parameter("flip_180").as_bool();
 
         if (source_type_ != "v4l2") {
             RCLCPP_WARN(get_logger(),
@@ -429,6 +432,7 @@ public:
             "\n  QoS:         %s"
             "\n  ISP 3A:      %s"
             "\n  calibration: %s"
+            "\n  flip_180:    %s"
             "\n==================================================",
             source_type_.c_str(),
             sensor_.c_str(),
@@ -440,7 +444,8 @@ public:
             topic_.c_str(), info_topic.c_str(),
             reliable ? "RELIABLE" : "BEST_EFFORT",
             enable_isp_ ? "enabled (AWIspApi)" : "disabled",
-            cal_file.empty() ? "none" : cal_file.c_str());
+            cal_file.empty() ? "none" : cal_file.c_str(),
+            flip_180_ ? "enabled" : "disabled");
 
         running_ = true;
         capture_thread_ = std::thread(&Imx219CameraNode::capture_loop, this);
@@ -548,6 +553,10 @@ private:
                 cv::Mat bgr(cam.height(), cam.width(), CV_8UC3,
                             const_cast<unsigned char*>(plane_data[0]));
 
+                // Flip 180 deg if camera is mounted upside-down
+                if (flip_180_)
+                    cv::rotate(bgr, bgr, cv::ROTATE_180);
+
                 // Resize if requested
                 cv::Mat out_img;
                 if (out_w_ != cam.width() || out_h_ != cam.height())
@@ -602,7 +611,7 @@ private:
     // Parameters
     std::string topic_, source_type_, sensor_, video_device_, format_, io_mode_, frame_id_;
     int fps_, cap_w_, cap_h_, out_w_, out_h_, resize_w_, resize_h_;
-    bool enable_isp_;
+    bool enable_isp_, flip_180_;
 
     // ROS
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr      img_pub_;
