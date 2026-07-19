@@ -2,13 +2,10 @@ import os
 import sys
 import yaml
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
-from launch.conditions import IfCondition
+from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import (
-    EqualsSubstitution,
     LaunchConfiguration,
     PythonExpression,
-    TextSubstitution,
 )
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
@@ -93,6 +90,17 @@ def generate_launch_description():
                               description='Legacy WIDTHxHEIGHT alias for width/height'),
         DeclareLaunchArgument('calibration_file', default_value=calibration_file),
 
+        # Camera static TF from launch_system (config/frames/<frame>.yaml,
+        # full_system_real passes tf_x..tf_yaw). If tf_x is empty, fall back
+        # to camera_tf_<id> from params.yaml (legacy behavior).
+        DeclareLaunchArgument('tf_parent_frame',  default_value='base_link'),
+        DeclareLaunchArgument('tf_x',             default_value=''),
+        DeclareLaunchArgument('tf_y',             default_value='0.0'),
+        DeclareLaunchArgument('tf_z',             default_value='0.0'),
+        DeclareLaunchArgument('tf_roll',          default_value='0.0'),
+        DeclareLaunchArgument('tf_pitch',         default_value='0.0'),
+        DeclareLaunchArgument('tf_yaw',           default_value='0.0'),
+
         Node(
             package='a733_csi_cam_ros2',
             executable='imx219_camera_node',
@@ -121,24 +129,51 @@ def generate_launch_description():
         ),
     ]
 
-    for cam_id, tf_cfg in camera_tfs.items():
-        ld_items.append(
-            Node(
+    def make_static_tf(context):
+        frame_id_val = LaunchConfiguration('frame_id').perform(context)
+        cam_id_val = LaunchConfiguration('camera_id').perform(context)
+        tf_x = LaunchConfiguration('tf_x').perform(context).strip()
+
+        if tf_x:
+            # Explicit tf_* from launch_system (frames/<frame>.yaml) is the
+            # source of truth. Use the new CLI syntax (--roll/--pitch/--yaw)
+            # to avoid the ordering trap of the legacy positional arguments
+            # (which take yaw pitch roll).
+            return [Node(
                 package='tf2_ros',
                 executable='static_transform_publisher',
-                name=[
-                    TextSubstitution(text='camera_tf_'),
-                    TextSubstitution(text=cam_id),
-                ],
-                condition=IfCondition(EqualsSubstitution(camera_id, cam_id)),
+                name=f'camera_tf_{cam_id_val}',
                 arguments=[
-                    tf_cfg['xyz'][0], tf_cfg['xyz'][1], tf_cfg['xyz'][2],
-                    tf_cfg['rpy'][0], tf_cfg['rpy'][1], tf_cfg['rpy'][2],
-                    tf_cfg['parent_frame'],
-                    LaunchConfiguration('frame_id'),
+                    '--x', tf_x,
+                    '--y', LaunchConfiguration('tf_y').perform(context),
+                    '--z', LaunchConfiguration('tf_z').perform(context),
+                    '--roll', LaunchConfiguration('tf_roll').perform(context),
+                    '--pitch', LaunchConfiguration('tf_pitch').perform(context),
+                    '--yaw', LaunchConfiguration('tf_yaw').perform(context),
+                    '--frame-id', LaunchConfiguration('tf_parent_frame').perform(context),
+                    '--child-frame-id', frame_id_val,
                 ],
                 output='screen',
-            )
-        )
+            )]
+
+        # Fallback: camera_tf_<id> from params.yaml (positional argument order
+        # kept as before: x y z, then the rpy values into yaw pitch roll slots).
+        tf_cfg = camera_tfs.get(cam_id_val)
+        if not tf_cfg:
+            return []
+        return [Node(
+            package='tf2_ros',
+            executable='static_transform_publisher',
+            name=f'camera_tf_{cam_id_val}',
+            arguments=[
+                tf_cfg['xyz'][0], tf_cfg['xyz'][1], tf_cfg['xyz'][2],
+                tf_cfg['rpy'][0], tf_cfg['rpy'][1], tf_cfg['rpy'][2],
+                tf_cfg['parent_frame'],
+                frame_id_val,
+            ],
+            output='screen',
+        )]
+
+    ld_items.append(OpaqueFunction(function=make_static_tf))
 
     return LaunchDescription(ld_items)
