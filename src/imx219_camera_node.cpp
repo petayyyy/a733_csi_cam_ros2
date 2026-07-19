@@ -409,7 +409,13 @@ public:
             info_topic = topic_ + "_info";
 
         img_pub_  = create_publisher<sensor_msgs::msg::Image>(topic_, qos);
-        info_pub_ = create_publisher<sensor_msgs::msg::CameraInfo>(info_topic, qos);
+
+        // camera_info: RELIABLE + transient_local (latched). The aruco
+        // subscribers (aruco_detect/aruco_loc) request transient_local, and a
+        // volatile publisher is QoS-incompatible with them — the intrinsics
+        // would never arrive at all.
+        auto info_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local();
+        info_pub_ = create_publisher<sensor_msgs::msg::CameraInfo>(info_topic, info_qos);
 
         std::string cal_file = get_parameter("calibration_file").as_string();
         cinfo_mgr_ = std::make_shared<camera_info_manager::CameraInfoManager>(
