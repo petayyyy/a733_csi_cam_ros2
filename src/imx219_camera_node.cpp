@@ -192,6 +192,30 @@ public:
     }
 #endif
 
+    bool trySetFlip(bool hflip, bool vflip) {
+        if (fd_ < 0) return false;
+        v4l2_control ctrl;
+        memset(&ctrl, 0, sizeof(ctrl));
+
+        ctrl.id = V4L2_CID_HFLIP;
+        ctrl.value = hflip ? 1 : 0;
+        bool hflip_ok = (ioctl(fd_, VIDIOC_S_CTRL, &ctrl) == 0);
+
+        ctrl.id = V4L2_CID_VFLIP;
+        ctrl.value = vflip ? 1 : 0;
+        bool vflip_ok = (ioctl(fd_, VIDIOC_S_CTRL, &ctrl) == 0);
+
+        if (hflip_ok && vflip_ok) {
+            fprintf(stdout, "[V4L2] Sensor flip (hflip+vflip) set OK — "
+                    "software flip disabled\n");
+            return true;
+        }
+        fprintf(stdout, "[V4L2] Sensor flip NOT supported (hflip=%s vflip=%s), "
+                "falling back to cv::flip\n",
+                hflip_ok ? "OK" : "FAIL", vflip_ok ? "OK" : "FAIL");
+        return false;
+    }
+
 private:
     struct Buffer { void* start[3]; size_t length[3]; };
 
@@ -500,6 +524,11 @@ private:
                 continue;
             }
 
+            // ── Sensor-level flip (hflip+vflip, free on IMX219) ──────────────
+            bool sensor_flip_ok = false;
+            if (flip_180_)
+                sensor_flip_ok = cam.trySetFlip(true, true);
+
             // ── ISP init after STREAMON (verbatim from camera_shm_host) ──────
             bool isp_ok = false;
 #ifdef USE_AWI_SP
@@ -560,7 +589,8 @@ private:
                             const_cast<unsigned char*>(plane_data[0]));
 
                 // Flip 180 deg if camera is mounted upside-down
-                if (flip_180_)
+                // (skip if sensor already flips — done via V4L2 ctrl above)
+                if (flip_180_ && !sensor_flip_ok)
                     cv::rotate(bgr, bgr, cv::ROTATE_180);
 
                 // Resize if requested
