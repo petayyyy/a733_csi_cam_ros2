@@ -1,4 +1,4 @@
-calibration_date: '2026-07-18 15:14:41'
+calibration_date: '2026-07-20 17:05:56'
 camera_name: imx219
 image_width: 1280
 image_height: 960
@@ -11,20 +11,20 @@ square_size: 0.022
 marker_size: 0.016
 aruco_dict: DICT_4X4_50
 num_calibration_frames: 26
-num_captured_frames: 36
-dropped_outliers: 5
-dropped_illcond: 5
-reprojection_error: 0.47149923838836194
+num_captured_frames: 27
+dropped_outliers: 0
+dropped_illcond: 1
+reprojection_error: 0.2995796492483219
 camera_matrix:
   rows: 3
   cols: 3
   data:
-  - 1117.769699719681
+  - 1118.8944517044656
   - 0.0
-  - 670.8524582219942
+  - 624.1968639661462
   - 0.0
-  - 1117.4656578480956
-  - 543.0027882098539
+  - 1120.1871265976795
+  - 415.3809878233824
   - 0.0
   - 0.0
   - 1.0
@@ -32,10 +32,10 @@ distortion_coefficients:
   rows: 1
   cols: 4
   data:
-  - 0.0634829340921618
-  - -0.1866139488631467
-  - 0.12010035034435189
-  - 0.23397161280176268
+  - 0.06929433395406337
+  - -0.3044898451099557
+  - 0.7273040906652918
+  - -0.6981876043857907
 rectification_matrix:
   rows: 3
   cols: 3
@@ -53,13 +53,13 @@ projection_matrix:
   rows: 3
   cols: 4
   data:
-  - 1117.769699719681
+  - 1118.8944517044656
   - 0.0
-  - 670.8524582219942
+  - 624.1968639661462
   - 0.0
   - 0.0
-  - 1117.4656578480956
-  - 543.0027882098539
+  - 1120.1871265976795
+  - 415.3809878233824
   - 0.0
   - 0.0
   - 0.0
