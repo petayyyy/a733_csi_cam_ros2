@@ -114,8 +114,21 @@ public:
         if (fd_ >= 0) close(fd_);
     }
 
+    // Must be called BEFORE init(): the flip changes the sensor's Bayer (CFA)
+    // phase, and that must be latched before S_FMT so the ISP demosaics with the
+    // correct pattern. Setting it after STREAMON swaps R<->B in the output.
+    void requestFlip(bool hflip, bool vflip) {
+        want_hflip_ = hflip;
+        want_vflip_ = vflip;
+    }
+    bool sensorFlipOk() const { return sensor_flip_ok_; }
+
     bool init() {
         if (!openDevice())     { fprintf(stderr,"[V4L2] openDevice failed\n");  return false; }
+        // Apply sensor flip BEFORE S_FMT so the Bayer pattern is negotiated
+        // (and the ISP latches it) in its flipped RGGB->BGGR phase.
+        if (want_hflip_ || want_vflip_)
+            sensor_flip_ok_ = trySetFlip(want_hflip_, want_vflip_);
         if (!setFormat())      { fprintf(stderr,"[V4L2] setFormat failed\n");   return false; }
         if (!requestBuffers()) { fprintf(stderr,"[V4L2] reqBufs failed\n");     return false; }
         if (!queueAllBuffers()){ fprintf(stderr,"[V4L2] queueBufs failed\n");   return false; }
@@ -222,6 +235,7 @@ private:
     std::string device_;
     int width_, height_, fd_, fps_, video_id_;
     bool streaming_;
+    bool want_hflip_ = false, want_vflip_ = false, sensor_flip_ok_ = false;
     unsigned nplanes_;
     Buffer buffers_[BUF_COUNT];
 
@@ -511,6 +525,10 @@ private:
         while (running_) {
             // ── Init camera (exactly as in camera_shm_host) ──────────────────
             V4L2Camera cam(video_device_, cap_w_, cap_h_, fps_);
+            // Request sensor flip BEFORE init() so it is applied before S_FMT
+            // (needed for correct Bayer phase / colors — see requestFlip()).
+            if (flip_180_)
+                cam.requestFlip(true, true);
             if (!cam.init()) {
                 RCLCPP_ERROR(get_logger(), "Camera init failed, retrying in 2s...");
                 std::this_thread::sleep_for(std::chrono::seconds(2));
@@ -524,10 +542,8 @@ private:
                 continue;
             }
 
-            // ── Sensor-level flip (hflip+vflip, free on IMX219) ──────────────
-            bool sensor_flip_ok = false;
-            if (flip_180_)
-                sensor_flip_ok = cam.trySetFlip(true, true);
+            // ── Sensor-level flip result (applied inside init(), pre-S_FMT) ──
+            bool sensor_flip_ok = cam.sensorFlipOk();
 
             // ── ISP init after STREAMON (verbatim from camera_shm_host) ──────
             bool isp_ok = false;
