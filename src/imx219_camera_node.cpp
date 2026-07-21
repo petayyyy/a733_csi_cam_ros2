@@ -114,21 +114,8 @@ public:
         if (fd_ >= 0) close(fd_);
     }
 
-    // Must be called BEFORE init(): the flip changes the sensor's Bayer (CFA)
-    // phase, and that must be latched before S_FMT so the ISP demosaics with the
-    // correct pattern. Setting it after STREAMON swaps R<->B in the output.
-    void requestFlip(bool hflip, bool vflip) {
-        want_hflip_ = hflip;
-        want_vflip_ = vflip;
-    }
-    bool sensorFlipOk() const { return sensor_flip_ok_; }
-
     bool init() {
         if (!openDevice())     { fprintf(stderr,"[V4L2] openDevice failed\n");  return false; }
-        // Apply sensor flip BEFORE S_FMT so the Bayer pattern is negotiated
-        // (and the ISP latches it) in its flipped RGGB->BGGR phase.
-        if (want_hflip_ || want_vflip_)
-            sensor_flip_ok_ = trySetFlip(want_hflip_, want_vflip_);
         if (!setFormat())      { fprintf(stderr,"[V4L2] setFormat failed\n");   return false; }
         if (!requestBuffers()) { fprintf(stderr,"[V4L2] reqBufs failed\n");     return false; }
         if (!queueAllBuffers()){ fprintf(stderr,"[V4L2] queueBufs failed\n");   return false; }
@@ -205,37 +192,12 @@ public:
     }
 #endif
 
-    bool trySetFlip(bool hflip, bool vflip) {
-        if (fd_ < 0) return false;
-        v4l2_control ctrl;
-        memset(&ctrl, 0, sizeof(ctrl));
-
-        ctrl.id = V4L2_CID_HFLIP;
-        ctrl.value = hflip ? 1 : 0;
-        bool hflip_ok = (ioctl(fd_, VIDIOC_S_CTRL, &ctrl) == 0);
-
-        ctrl.id = V4L2_CID_VFLIP;
-        ctrl.value = vflip ? 1 : 0;
-        bool vflip_ok = (ioctl(fd_, VIDIOC_S_CTRL, &ctrl) == 0);
-
-        if (hflip_ok && vflip_ok) {
-            fprintf(stdout, "[V4L2] Sensor flip (hflip+vflip) set OK — "
-                    "software flip disabled\n");
-            return true;
-        }
-        fprintf(stdout, "[V4L2] Sensor flip NOT supported (hflip=%s vflip=%s), "
-                "falling back to cv::flip\n",
-                hflip_ok ? "OK" : "FAIL", vflip_ok ? "OK" : "FAIL");
-        return false;
-    }
-
 private:
     struct Buffer { void* start[3]; size_t length[3]; };
 
     std::string device_;
     int width_, height_, fd_, fps_, video_id_;
     bool streaming_;
-    bool want_hflip_ = false, want_vflip_ = false, sensor_flip_ok_ = false;
     unsigned nplanes_;
     Buffer buffers_[BUF_COUNT];
 
@@ -525,10 +487,6 @@ private:
         while (running_) {
             // ── Init camera (exactly as in camera_shm_host) ──────────────────
             V4L2Camera cam(video_device_, cap_w_, cap_h_, fps_);
-            // Request sensor flip BEFORE init() so it is applied before S_FMT
-            // (needed for correct Bayer phase / colors — see requestFlip()).
-            if (flip_180_)
-                cam.requestFlip(true, true);
             if (!cam.init()) {
                 RCLCPP_ERROR(get_logger(), "Camera init failed, retrying in 2s...");
                 std::this_thread::sleep_for(std::chrono::seconds(2));
@@ -541,9 +499,6 @@ private:
                 std::this_thread::sleep_for(std::chrono::seconds(2));
                 continue;
             }
-
-            // ── Sensor-level flip result (applied inside init(), pre-S_FMT) ──
-            bool sensor_flip_ok = cam.sensorFlipOk();
 
             // ── ISP init after STREAMON (verbatim from camera_shm_host) ──────
             bool isp_ok = false;
@@ -592,6 +547,10 @@ private:
             uint64_t frame_count = 0;
             int64_t  t0 = now_ms();
 
+            // Reused across frames to avoid a per-frame heap allocation; holds the
+            // 180°-rotated frame when flip_180 is enabled.
+            cv::Mat rotated;
+
             while (running_) {
                 const unsigned char* plane_data[3] = {nullptr, nullptr, nullptr};
                 std::vector<size_t>  plane_sizes;
@@ -600,14 +559,25 @@ private:
                 if (!cam.waitFrame(plane_data, plane_sizes, buf_idx))
                     continue;
 
-                // Build cv::Mat — single plane BGR3
-                cv::Mat bgr(cam.height(), cam.width(), CV_8UC3,
+                // Build cv::Mat — single plane BGR3 over the V4L2 mmap buffer.
+                cv::Mat frame(cam.height(), cam.width(), CV_8UC3,
                             const_cast<unsigned char*>(plane_data[0]));
 
-                // Flip 180 deg if camera is mounted upside-down
-                // (skip if sensor already flips — done via V4L2 ctrl above)
-                if (flip_180_ && !sensor_flip_ok)
-                    cv::rotate(bgr, bgr, cv::ROTATE_180);
+                // Flip 180 deg if camera is mounted upside-down.
+                // NOTE: the mmap buffer is uncached/write-combined DMA memory, so
+                // an IN-PLACE cv::rotate on it does reverse read+write of uncached
+                // RAM and collapses capture to ~4 fps. cv::rotate here reads
+                // `frame` sequentially (linear read of the DMA buffer — cheap even
+                // uncached) and writes the rotated result straight into the cached,
+                // reused `rotated` Mat in a SINGLE pass (no separate copy). flip
+                // disabled -> keep the zero-copy view.
+                cv::Mat bgr;
+                if (flip_180_) {
+                    cv::rotate(frame, rotated, cv::ROTATE_180);
+                    bgr = rotated;   // header share, no data copy
+                } else {
+                    bgr = frame;
+                }
 
                 // Resize if requested
                 cv::Mat out_img;
