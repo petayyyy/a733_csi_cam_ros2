@@ -82,14 +82,6 @@ static bool parse_size(const std::string& s, int& w, int& h) {
     return w > 0 && h > 0;
 }
 
-static void try_set_realtime(int prio = 10) {
-    sched_param sp{}; sp.sched_priority = prio;
-    if (pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp) == 0)
-        fprintf(stdout, "[RT] SCHED_FIFO prio=%d OK\n", prio);
-    else
-        fprintf(stderr, "[RT] SCHED_FIFO failed — need root or CAP_SYS_NICE\n");
-}
-
 // ── V4L2 Camera (verbatim from camera_shm_host.cpp) ─────────────────────────
 
 class V4L2Camera {
@@ -482,8 +474,9 @@ public:
 
 private:
     void capture_loop() {
-        try_set_realtime(15);
-
+        // Do NOT raise this thread to SCHED_FIFO: on Allwinner (sunxi-vin) it
+        // preempts the SCHED_OTHER ISP threads (3A/vin_*), starves 3A and drops
+        // FPS 30->13-15. The camera needs no RT — 30 fps at ~40% CPU on OTHER.
         while (running_) {
             // ── Init camera (exactly as in camera_shm_host) ──────────────────
             V4L2Camera cam(video_device_, cap_w_, cap_h_, fps_);
